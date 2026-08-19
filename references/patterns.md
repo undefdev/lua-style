@@ -23,15 +23,15 @@ even if `f` errors. If `f` errored, the error is re-thrown after cleanup.
 
 ```lua
 do
-  local unpack = unpack or table.unpack
-  function cpcall( f, c, ... )
-    -- xpcall returns ok, result... — we capture into a table manually
-    -- because LuaJIT lacks table.pack.
-    local ret = { xpcall( f, debug.traceback, ... ) }
-    c( ... )
-    if not ret[1] then  error( ret[2], 0 )  end
-    return unpack( ret, 2 )
-  end
+	local unpack = unpack or table.unpack
+	function cpcall( f, c, ... )
+		-- xpcall returns ok, result... — we capture into a table manually
+		-- because LuaJIT lacks table.pack.
+		local ret = { xpcall( f, debug.traceback, ... ) }
+		c( ... )
+		if not ret[1] then  error( ret[2], 0 )  end
+		return unpack( ret, 2 )
+	end
 end
 ```
 
@@ -40,18 +40,18 @@ trailing nils). If you need nil-safe returns, use a count variable:
 
 ```lua
 do
-  local unpack = unpack or table.unpack
-  function cpcall( f, c, ... )
-    local n = select( "#", ... )
-    local ret_n
-    local ret = { xpcall( f, function( err )
-      ret_n = 0  -- signal error
-      return debug.traceback( err )
-    end, ... ) }
-    c( ... )
-    if not ret[1] then  error( ret[2], 0 )  end
-    return unpack( ret, 2 )
-  end
+	local unpack = unpack or table.unpack
+	function cpcall( f, c, ... )
+		local n = select( "#", ... )
+		local ret_n
+		local ret = { xpcall( f, function( err )
+			ret_n = 0  -- signal error
+			return debug.traceback( err )
+		end, ... ) }
+		c( ... )
+		if not ret[1] then  error( ret[2], 0 )  end
+		return unpack( ret, 2 )
+	end
 end
 ```
 
@@ -72,7 +72,7 @@ resume — don't rely on GC.
 Conn = { __name = "Conn" } ; Conn.__index = Conn
 function Conn.__close( self )  self:disconnect()  end
 function Conn.new( host )
-  return setmetatable( { host = host, sock = connect( host ) }, Conn )
+	return setmetatable( { host = host, sock = connect( host ) }, Conn )
 end
 
 -- Usage:
@@ -84,12 +84,12 @@ local conn <close> = Conn.new( "localhost" )
 
 ```lua
 function withOpenFile( fname, mode, func )
-  return cpcall( func, io.close, assert( io.open( fname, mode ) ) )
+	return cpcall( func, io.close, assert( io.open( fname, mode ) ) )
 end
 
 -- Usage:
 withOpenFile( "data.txt", "r", function( f )
-  for line in f:lines() do  process( line )  end
+	for line in f:lines() do  process( line )  end
 end )
 ```
 
@@ -105,20 +105,20 @@ end )
 ```lua
 -- Simple task system with typed yields
 function worker( id )
-  while true do
-    local task = coroutine.yield( "ready", id )
-    local result = doWork( task )
-    coroutine.yield( "done", { id = id, result = result } )
-  end
+	while true do
+		local task = coroutine.yield( "ready", id )
+		local result = doWork( task )
+		coroutine.yield( "done", { id = id, result = result } )
+	end
 end
 
 function scheduler( tasks )
-  local workers = {}
-  for i = 1, NUM_WORKERS do
-    workers[i] = coroutine.create( worker )
-    coroutine.resume( workers[i], i )  -- prime
-  end
-  -- ... dispatch loop using kind/payload protocol
+	local workers = {}
+	for i = 1, NUM_WORKERS do
+		workers[i] = coroutine.create( worker )
+		coroutine.resume( workers[i], i )  -- prime
+	end
+	-- ... dispatch loop using kind/payload protocol
 end
 ```
 
@@ -133,8 +133,8 @@ Tests as plain tables, not framework callbacks.
 
 ```lua
 tests.funcname = {
-  { "description", function() assert( ... ) end },
-  { "another case", function() assert( ... ) end },
+	{ "description", function() assert( ... ) end },
+	{ "another case", function() assert( ... ) end },
 }
 ```
 
@@ -142,6 +142,7 @@ tests.funcname = {
 - Setup/cleanup as named fields on group or entry.
 - Filter by function (`tests[name]`), by marker string, or by attributes.
 - Mock via `_MENV`: `mod._MENV.http_request = mock_fn`.
+- Assertion helpers live in one shared module — never copy-pasted per file.
 
 ---
 
@@ -153,13 +154,13 @@ that reopens other modules and patches them:
 ```lua
 -- foo/_features/async.lua
 return function( mods )
-  -- Reopen the server module and wrap its listen function
-  do local _ENV = mods.server._MENV
-    local sync_listen = _M.listen
-    function _M.listen( addr, opts )
-      return async_wrap( sync_listen, addr, opts )
-    end
-  end
+	-- Reopen the server module and wrap its listen function
+	do local _ENV = mods.server._MENV
+		local sync_listen = _M.listen
+		function _M.listen( addr, opts )
+			return async_wrap( sync_listen, addr, opts )
+		end
+	end
 end
 ```
 
@@ -168,12 +169,12 @@ Main module returns a loader:
 ```lua
 -- foo/init.lua
 return function( opts )
-  local mods = {
-    server = require "foo.server",
-    client = require "foo.client",
-  }
-  if opts.async then  require "foo._features.async" ( mods )  end
-  return mods
+	local mods = {
+		server = require "foo.server",
+		client = require "foo.client",
+	}
+	if opts.async then  require "foo._features.async" ( mods )  end
+	return mods
 end
 
 -- Usage: foo = require "foo" { async = true }

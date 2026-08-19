@@ -100,11 +100,19 @@ But the `_ENV` pattern already achieves this isolation more portably.
 
 ## Formatting
 
+- **Tabs for indentation, spaces for alignment.** One tab per depth level.
+  Spaces only for lining things up — `=` in a table literal, comment columns,
+  continuation lines. If a project already follows another convention, match
+  the project.
 - **Compact single-line blocks:** `if x then  do_thing()  end` — two spaces
-  around the body. Keep lines ≤~90 chars.
+  around the body.
+- **Keep lines short.** ≤90 chars (at tab width 4) is a good target, not a
+  hard limit.
 - **Semicolons as separators:** ` ; ` (space-semicolon-space). A semicolon
   without a preceding space is always wrong.
 - **Spaces inside call parens:** `f( x, y )`. No spaces for grouping: `(a + b)`.
+- **Concise unless it hurts readability.** When two forms are equally clear,
+  take the shorter one — but don't compress past the point of obviousness.
 
 ---
 
@@ -144,13 +152,13 @@ FOO = (FOO == nil) and true or FOO  -- default true (avoid if possible)
 **Value first, varargs last.** Aligns with method syntax via `__index`.
 ```lua
 function map( t, f, ... )
-  local u = {}
-  if type( f ) == "string" then
-    for k, v in ipairs( t ) do  u[k] = v[f]( v, ... )  end
-  else
-    for k, v in ipairs( t ) do  u[k] = f( v, ... )  end
-  end
-  return setmetatable( u, getmetatable( t ) )
+	local u = {}
+	if type( f ) == "string" then
+		for k, v in ipairs( t ) do  u[k] = v[f]( v, ... )  end
+	else
+		for k, v in ipairs( t ) do  u[k] = f( v, ... )  end
+	end
+	return setmetatable( u, getmetatable( t ) )
 end
 ```
 
@@ -158,12 +166,15 @@ end
 - Preserve metatables through transformations.
 - Compose via nesting: `map( t, at, "key", string.upper )`.
 
+**Parameter order:** value first, then required context, then optional, varargs
+last. Never pad to reach a later parameter — `f( x, nil, nil, ctx )` means the
+signature is wrong; move `ctx` forward.
+
 **Varargs:** pass through, don't introspect. Use `select( '#', ... )` when you
 need the count. Use `table.pack` only when you actually need the table.
 
 **Closures:** fine for persistent state, long-lived iterators, or syntactic sugar
-(`foo "x" { ... }`). Avoid per-call closures in hot paths — use vararg
-pass-through instead.
+(`foo "x" { ... }`).
 
 **Iterators:** prefer stateless > closure > coroutine. Lua 5.4+/5.5 generic `for`
 accepts a 4th closeable state variable for cleanup.
@@ -171,8 +182,22 @@ accepts a 4th closeable state variable for cleanup.
 **Multiple returns:** use freely for fixed/tuple shapes. For variable-length
 results, return a table instead of building helpers to unpack them.
 
-**Performance escalation:** readable Lua → optimized Lua → C. Each level
-preserves the previous as test oracle.
+---
+
+## Hot Paths
+
+Hoist everything constant out of per-call code:
+
+- **`require` at module level**, never inside a function. A cached `require` is
+  still a hash lookup on every call.
+- **Constant tables at module scope** — lookup tables, cost tables, dispatch
+  tables. A table constructor inside a function allocates on every call.
+- **Reuse buffers** in per-frame or per-tick loops instead of allocating a fresh
+  table each pass.
+- **No per-call closures** — pass varargs through instead.
+
+Escalation order: readable Lua → optimized Lua → C. Each level keeps the
+previous as its test oracle.
 
 ---
 
@@ -183,8 +208,13 @@ Expose data-like structure as tables, not code.
 - **Dispatch tables**, not if/elseif chains.
 - **Table entries**, not nested callbacks.
 - **Vararg tails**, not closures capturing extra args.
+- **Nil handlers, not no-op functions.** Callers already guard with
+  `if def.handler then …`, so a missing handler is simply absent — don't fill
+  the slot with `function() end`.
 
 **Tables:**
+- Membership is a set, not an array: `{ MELEE = true }` for `roles.MELEE`, not
+  `{ "MELEE" }` plus a linear scan. Build sets from lists with a small helper.
 - Shallow copies are the norm. Deep copy is a method on the type, not generic.
 - Don't mix dynamic hash metadata with array data. Fixed well-known fields
   (`.width`) alongside array data is fine.
@@ -222,6 +252,9 @@ Metatables always get `__name`:
 ```lua
 Foo = { __name = "Foo" } ; Foo.__index = Foo
 function Foo.new( x, y )  return setmetatable( { x = x, y = y }, Foo )  end
+-- 5.4+ uses __name for tostring and error messages; LuaJIT ignores it.
+-- Define __tostring for the same legibility on both.
+function Foo.__tostring( self )  return "Foo(" .. self.x .. "," .. self.y .. ")"  end
 ```
 
 - No class helpers, no `Class.extend()`, no base-class protocol.
@@ -244,6 +277,7 @@ reloads so existing instances see updated methods.
 
 - Add `setfenv` shim in module pattern (shown above).
 - Avoid 5.2+ syntax (`goto`, `\x` escapes in strings, etc.).
+- `__name` is ignored (5.3+ metafield) — define `__tostring` for legible output.
 - Use `bit` library for bitwise ops (not `bit32`).
 - `table.new` via `require "table.new"` for pre-allocation.
 - FFI available — but keep Lua-side code testable independently.
