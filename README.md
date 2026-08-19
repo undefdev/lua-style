@@ -16,17 +16,19 @@ idioms it should use instead, targeting **LuaJIT (5.1 semantics)** and **Lua 5.5
 
 ## Install
 
-The repo root *is* the skill directory, so clone it into place:
+The repo root *is* the skill directory, so clone it straight into place:
 
 ```sh
-git clone <this-repo> ~/.claude/skills/lua-style
+git clone https://github.com/undefdev/lua-style.git ~/.claude/skills/lua-style
 ```
 
-Or keep the checkout elsewhere and symlink it:
+Or keep the checkout wherever you like and symlink it:
 
 ```sh
-ln -s ~/other/lua-style ~/.claude/skills/lua-style
+git clone https://github.com/undefdev/lua-style.git /path/to/lua-style
+ln -s /path/to/lua-style ~/.claude/skills/lua-style
 ```
 
 Activate with `/lua-style`, or let Claude trigger it from the frontmatter
-description when Lua comes up.
+description when Lua comes up. Skills are read at session start, so a fresh
+session is needed after changing them.
