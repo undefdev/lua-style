@@ -276,7 +276,10 @@ reloads so existing instances see updated methods.
 ### LuaJIT (5.1 semantics)
 
 - Add `setfenv` shim in module pattern (shown above).
-- Avoid 5.2+ syntax (`goto`, `\x` escapes in strings, etc.).
+- Avoid 5.3+ syntax (`//` integer division, `<const>`/`<close>` attributes) and
+  5.5 keywords (`global`, `(...: args)`). Note that `goto`, `\x`/`\z`/`\u{}`
+  escapes and `|`/`&`/`~`/`<<`/`>>` operators are LuaJIT extensions that work
+  fine.
 - `__name` is ignored (5.3+ metafield) — define `__tostring` for legible output.
 - Use `bit` library for bitwise ops (not `bit32`).
 - `table.new` via `require "table.new"` for pre-allocation.
