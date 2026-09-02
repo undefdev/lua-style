@@ -52,11 +52,13 @@ resolution. The `setfenv( 1, _ENV )` call is what actually changes the function
 environment so bare names resolve through the new table. Without it, everything
 on LuaJIT silently goes into `_G`. Never remove this guard.
 
-- **Public** functions: `function _M.foo( x )` — lives in the returned table.
+- **Public** functions: `function _M.foo( x )` — lives in the module table.
 - **Private** functions: `function helper( x )` — bare name, lives in `_ENV`, no `local`.
 - `_MENV` exposes internals for testing, mocking, and environment reopening.
 - No `return` at end of file — `package.loaded` is set up front.
-- For simple utility modules where everything is public, `_M` can be `_ENV`.
+- For simple utility modules where everything is public, skip the separate
+  table: `local _M = _ENV ; _M._NAME = ... ; _M._MENV = _ENV`. Every bare-name
+  function is then part of the API.
 
 **Reopening another module's environment:** write the block as a function whose
 parameter is named `_ENV`, and `setfenv` it on LuaJIT:
@@ -75,7 +77,8 @@ work. Do **not** use `do local _ENV = mod._MENV ... end` — it only works in
 **Feature modules:** Instead of `if FEATURE_FLAG then …` scattered through
 sub-modules, write a single `foo._features.bar` that reopens involved modules
 and overrides/wraps functions. Main module returns a loader:
-`foo = require "foo" { async = true }`.
+`foo = require "foo" { async = true }`. Full example in
+`references/patterns.md`.
 
 ### Modules with types
 
@@ -145,22 +148,44 @@ syntax error on every earlier version, so it excludes LuaJIT and 5.4 outright.
 | `__name` | Metamethods (incl. custom) | `__add`, `__dup` |
 | `foo_` | Caution signal | see below |
 
-**Trailing underscore** has three meanings:
-1. In data: private field.
-2. In-place/mutating variant of a function (`map` → `map_`).
-3. In modules: exposed low-level helper.
+**Trailing underscore** is a "handle with care" marker, with three uses:
+1. In data: a private field (`self.cache_`) — readable, but not part of the
+   type's contract.
+2. The in-place/mutating variant of a function (`map` → `map_`).
+3. In a module's public table: a low-level helper (`_M.parse_`) that skips
+   the validation or defaults of its plain counterpart. Public so tests and
+   power users can reach it; callers are expected to know the invariants.
 
 ---
 
 ## Globals and Configuration
 
+Runtime parameters are globals, set before the code that reads them runs.
+Two channels, by how official the parameter is:
+
+- **Environment variable** for documented, user-facing parameters:
+  `MAX_RETRIES=5 lua main.lua`. Read and convert at the top of the file;
+  `os.getenv` always returns a string or `nil`.
+  ```lua
+  MAX_RETRIES = tonumber( os.getenv "MAX_RETRIES" ) or 3
+  ```
+- **Injected global** for internal knobs that are rarely touched, mostly for
+  debugging: `lua -e 'VERBOSE=true' main.lua`. The script keeps an injected
+  value and otherwise sets the default:
+  ```lua
+  VERBOSE = VERBOSE or false
+  ```
+
+Booleans that default to `true` can't use `or`, because `false or true` is
+`true` and an explicit `false` would be lost. Test for `nil` instead, or
+better, name the flag so its default is `false` (`QUIET` rather than
+`VERBOSE`):
 ```lua
--- (a) FOO=x lua … — official params, Rust-like
-FOO = tonumber( os.getenv "FOO" ) or default
--- (b) lua -e 'FOO="x"' … — rarely overridden params
-FOO = FOO or default
-FOO = (FOO == nil) and true or FOO  -- default true (avoid if possible)
+COLOR = (COLOR == nil) and true or COLOR  -- only when the flag can't be inverted
 ```
+
+This works inside `_ENV` modules too: the read falls through `__index` to
+`_G`, the write lands in the module's own environment.
 
 ---
 
@@ -183,7 +208,9 @@ end
 
 - String `f` = method dispatch. Otherwise `f` is a function or `__call`-able.
 - Preserve metatables through transformations.
-- Compose via nesting: `map( t, at, "key", string.upper )`.
+- Compose via nesting, with small generic helpers instead of one-off closures.
+  Given `function at( v, key, f )  return f( v[key] )  end`, then
+  `map( t, at, "key", string.upper )` upper-cases `v.key` of every element.
 
 **Parameter order:** value first, then required context, then optional, varargs
 last. Never pad to reach a later parameter — `f( x, nil, nil, ctx )` means the
@@ -250,11 +277,6 @@ In order of preference:
    function per count with `loadstring`/`load` via string substitution, and
    cache it by `n`. Generated code runs at hand-written speed; generating one
    costs ~2 µs.
-
-A vararg *entry point* that only forwards — `function api( ... ) return
-impl[select( '#', ... )]( ... ) end` — is fine as long as the hot loop is
-in the caller or in `impl`, not in `api` itself: the forwarder is inlined into
-a trace where the count is known.
    ```lua
    local specialized = {}
    function forArity( n )
@@ -268,6 +290,11 @@ a trace where the count is known.
    end
    ```
 
+A vararg *entry point* that only forwards — `function api( ... ) return
+impl[select( '#', ... )]( ... ) end` — is fine as long as the hot loop is
+in the caller or in `impl`, not in `api` itself: the forwarder is inlined into
+a trace where the count is known.
+
 Escalation order: readable Lua → optimized Lua → C. Each level keeps the
 previous as its test oracle.
 
@@ -277,8 +304,10 @@ previous as its test oracle.
 
 Expose data-like structure as tables, not code.
 
-- **Dispatch tables**, not if/elseif chains.
-- **Table entries**, not nested callbacks.
+- **Dispatch tables**, not if/elseif chains: `handlers[kind]( msg )`.
+- **Table entries**, not nested callbacks: describe a pipeline, a route list,
+  or a config as a list of `{ … }` entries that one loop interprets, rather
+  than as callbacks that register further callbacks.
 - **Extra parameters**, not closures capturing extra args. A vararg tail is
   fine in the signature, but unpack it to locals before any loop (LuaJIT).
 - **Nil handlers, not no-op functions.** Callers already guard with
@@ -394,8 +423,9 @@ table, because the module's `_ENV` is rebuilt on every reload.
 
 ## Strings
 
-- Under-specify patterns; do post-checks. Don't force complex validation
-  into Lua patterns.
+- Under-specify patterns; do post-checks. Match the rough shape with a loose
+  pattern (`"^(%w+)=(.*)$"`), then validate the captures in plain Lua. Don't
+  force complex validation into the pattern itself.
 - Use LPeg for anything beyond simple matching.
 
 ## Libraries
