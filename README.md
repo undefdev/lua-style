@@ -11,8 +11,10 @@ idioms it should use instead, targeting **LuaJIT (5.1 semantics)** and **Lua 5.5
 - `SKILL.md` — the style guide: modules (`_ENV`-based), formatting, naming,
   functional patterns, data philosophy, error handling, metatables/OOP,
   version-specific guidance for LuaJIT vs 5.5.
-- `references/patterns.md` — extended examples: OOP, coroutines, testing,
-  resource management, `cpcall`.
+- `references/patterns.md` — extended examples: `cpcall`, resource management,
+  coroutines, testing, feature modules.
+- `references/varargs-luajit.md` — measurements behind the LuaJIT vararg
+  guidance, with the benchmark script (`references/varargs-bench.lua`).
 
 ## Install
 

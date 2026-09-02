@@ -1,8 +1,8 @@
 # Lua Patterns Reference
 
 Detailed code examples for the lua-style skill. Read this file when you need
-specific implementation patterns for error handling, resource management, OOP,
-coroutines, or testing.
+specific implementation patterns for error handling, resource management,
+coroutines, testing, or feature modules.
 
 ## Table of Contents
 
@@ -19,45 +19,32 @@ coroutines, or testing.
 `cpcall` = pcall + guaranteed cleanup. The cleanup function `c` always runs,
 even if `f` errors. If `f` errored, the error is re-thrown after cleanup.
 
-**LuaJIT-compatible** (no `table.pack`/`table.unpack`):
+Works on LuaJIT and 5.5 (both pass extra `xpcall` arguments through). The
+results of `f` never touch a table, so `nil`s in the return list survive; only
+the (small) argument list is packed, for the cleanup call.
 
 ```lua
 do
 	local unpack = unpack or table.unpack
+	local function finish( c, args, ok, ... )
+		c( unpack( args, 1, args.n ) )
+		if not ok then  error( (...), 0 )  end
+		return ...
+	end
 	function cpcall( f, c, ... )
-		-- xpcall returns ok, result... — we capture into a table manually
-		-- because LuaJIT lacks table.pack.
-		local ret = { xpcall( f, debug.traceback, ... ) }
-		c( ... )
-		if not ret[1] then  error( ret[2], 0 )  end
-		return unpack( ret, 2 )
+		return finish( c, { n = select( '#', ... ), ... },
+		               xpcall( f, debug.traceback, ... ) )
 	end
 end
 ```
 
-Note: this version drops nils in the return tail (since `#ret` won't count
-trailing nils). If you need nil-safe returns, use a count variable:
+`debug.traceback` returns non-string errors unchanged, so typed error tables
+pass through `cpcall` intact; string errors arrive with a traceback appended.
 
-```lua
-do
-	local unpack = unpack or table.unpack
-	function cpcall( f, c, ... )
-		local n = select( "#", ... )
-		local ret_n
-		local ret = { xpcall( f, function( err )
-			ret_n = 0  -- signal error
-			return debug.traceback( err )
-		end, ... ) }
-		c( ... )
-		if not ret[1] then  error( ret[2], 0 )  end
-		return unpack( ret, 2 )
-	end
-end
-```
-
-For the rare case where you truly need nil-preserving returns across pcall on
-LuaJIT, consider using `select('#', ...)` on the xpcall results via a wrapper,
-or just return a table from `f` instead of multiple values.
+Don't write the `{ xpcall( … ) } … unpack( ret, 2 )` variant: it drops trailing
+`nil`s from the results, and `{ … }` on a vararg is a trace killer on LuaJIT
+(see SKILL.md, Hot Paths). `cpcall` is not usually hot, but there's no reason
+to pay for it.
 
 ---
 
@@ -141,7 +128,7 @@ tests.funcname = {
 - Group by function. Positional fields: `[1]` = name, `[2]` = test fn.
 - Setup/cleanup as named fields on group or entry.
 - Filter by function (`tests[name]`), by marker string, or by attributes.
-- Mock via `_MENV`: `mod._MENV.http_request = mock_fn`.
+- Mock via `_MENV`: `mod._MENV.httpRequest = mockFn`.
 - Assertion helpers live in one shared module — never copy-pasted per file.
 
 ---
@@ -154,15 +141,25 @@ that reopens other modules and patches them:
 ```lua
 -- foo/_features/async.lua
 return function( mods )
-	-- Reopen the server module and wrap its listen function
-	do local _ENV = mods.server._MENV
-		local sync_listen = _M.listen
-		function _M.listen( addr, opts )
-			return async_wrap( sync_listen, addr, opts )
+	local server = mods.server
+	-- Reopen the server module's environment: bare names inside `patch`
+	-- resolve through server._MENV, so its private helpers (asyncWrap)
+	-- are reachable. Enclosing locals (server) stay visible as locals.
+	local function patch( _ENV )
+		local syncListen = server.listen
+		function server.listen( addr, opts )
+			return asyncWrap( syncListen, addr, opts )
 		end
 	end
+	if setfenv then  setfenv( patch, server._MENV )  end
+	patch( server._MENV )
 end
 ```
+
+The `_ENV` parameter does the reopening on 5.2+; `setfenv` does it on LuaJIT.
+A `do local _ENV = … end` block only works on 5.2+ — on LuaJIT everything in it
+lands in `_G`. Note that `_M` is a `local` in the module file, so it is *not*
+reachable through `_MENV`; refer to the module table via `mods` instead.
 
 Main module returns a loader:
 
