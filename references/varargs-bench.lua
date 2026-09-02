@@ -131,6 +131,49 @@ bench( "3b codegen per arity, arity 1..4", function()
 	return s
 end )
 
+-- 3c/3d) bounded arity without codegen; vararg forwarder in front of codegen -
+local function sumB( ... )                  -- branch on count, max arity 4
+	local n = select( '#', ... )
+	local a, b, c, d = ...
+	if n == 1 then  return a
+	elseif n == 2 then  return a + b
+	elseif n == 3 then  return a + b + c
+	else  return a + b + c + d  end
+end
+local function sumG( ... )  return sums[select( '#', ... )]( ... )  end
+bench( "3c branch on select('#') + local a,b,c,d = ...", function()
+	local s = 0
+	for i = 1, N do
+		local m = i % 4
+		if m == 0 then  s = s + sumB( i )
+		elseif m == 1 then  s = s + sumB( i, 1 )
+		elseif m == 2 then  s = s + sumB( i, 1, 2 )
+		else  s = s + sumB( i, 1, 2, 3 )  end
+	end
+	return s
+end )
+bench( "3d codegen behind a vararg forwarder", function()
+	local s = 0
+	for i = 1, N do
+		local m = i % 4
+		if m == 0 then  s = s + sumG( i )
+		elseif m == 1 then  s = s + sumG( i, 1 )
+		elseif m == 2 then  s = s + sumG( i, 1, 2 )
+		else  s = s + sumG( i, 1, 2, 3 )  end
+	end
+	return s
+end )
+bench( "3e loadstring + compile 1000 specializations", function()
+	local last
+	for i = 1, 1000 do
+		local n = i % 8 + 1
+		local a = {} ; for j = 1, n do  a[j] = "a" .. j  end
+		local l = table.concat( a, ", " )
+		last = assert( loadstring( ("return function( f, %s ) return f( %s ) end"):format( l, l ) ) )()
+	end
+	return last ~= nil
+end )
+
 -- 4) packing varargs into a table -------------------------------------------
 bench( "4a {...} in callee", function()
 	local s = 0
@@ -150,3 +193,25 @@ bench( "4c fixed arity, no table", function()
 	for i = 1, N do  s = s + f( i, 1, 2 )  end
 	return s
 end )
+
+-- 5) closures: where creation happens decides everything -------------------
+bench( "5a closure created per inner iteration", function()
+	local s = 0
+	for i = 1, N / 100 do
+		local f, a, b = ops[i % 2 + 1], i, 2
+		for k = 1, 100 do
+			local g = function( v )  return f( v, a, b )  end
+			s = s + g( data[k] )
+		end
+	end
+	return s / 100
+end )
+bench( "5b same work, no closure", function()
+	local s = 0
+	for i = 1, N / 100 do
+		local f, a, b = ops[i % 2 + 1], i, 2
+		for k = 1, 100 do  s = s + f( data[k], a, b )  end
+	end
+	return s / 100
+end )
+-- (1d above is the "closure per outer iteration" case.)

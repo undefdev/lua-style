@@ -216,8 +216,12 @@ Hoist everything constant out of per-call code:
   tables. A table constructor inside a function allocates on every call.
 - **Reuse buffers** in per-frame or per-tick loops instead of allocating a fresh
   table each pass.
-- **No per-call closures** — but on LuaJIT, a vararg tail is *not* the cheaper
-  alternative (see below). Fixed parameters are.
+- **Never create a closure inside a hot loop body.** Closure creation is not
+  compiled on LuaJIT (`NYI: bytecode FNEW`); a closure built per inner
+  iteration aborts the trace and the loop runs interpreted — measured 50×.
+  A closure built once per outer iteration and passed into a compiled inner
+  loop costs ~1.4×, which is usually acceptable. A vararg tail is *not* the
+  cheaper alternative on LuaJIT (see below). Fixed parameters are.
 
 ### Varargs on LuaJIT
 
@@ -239,9 +243,18 @@ In order of preference:
 1. **Known arity at write time** → write the parameters. No `...`.
 2. **Vararg function containing a loop** → `local a, b = ...` at function
    entry, then use the locals. Compiles fine.
-3. **Arity known only at runtime, stable per call site** → generate one
-   fixed-arity function per count with `loadstring`/`load` via string
-   substitution, and cache it by `n`. Generated code runs at hand-written speed.
+3. **Arity varies but has a known maximum** → `local n = select( '#', ... )`,
+   `local a, b, c, d = ...`, then branch on `n` to fixed-arity code. As fast
+   as generated code; no codegen needed.
+4. **Arity unbounded, stable per call site** → generate one fixed-arity
+   function per count with `loadstring`/`load` via string substitution, and
+   cache it by `n`. Generated code runs at hand-written speed; generating one
+   costs ~2 µs.
+
+A vararg *entry point* that only forwards — `function api( ... ) return
+impl[select( '#', ... )]( ... ) end` — is fine as long as the hot loop is
+in the caller or in `impl`, not in `api` itself: the forwarder is inlined into
+a trace where the count is known.
    ```lua
    local specialized = {}
    function forArity( n )
