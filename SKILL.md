@@ -341,11 +341,9 @@ In LuaJIT, use `require "table.new"` for the same effect.
   module. But beware: syntax/type errors are also caught by `pcall`. Use typed
   errors to ensure clean separation. At the module boundary, translate back:
   `pcall` → `return nil, err`, re-throwing non-operational Lua errors.
-- **Typed errors:** tables (`{ type = "timeout", ... }`). No need for a
-  `type(err) == "table"` guard — the string type's `__index` makes read access
-  on a plain string error safe (`err.type` is `nil`). Avoid field names that
-  collide with string library functions (`len`, `sub`, `format`, `rep`, `find`,
-  `match`, `byte`): on a string error those return a function, not `nil`.
+- **Typed errors:** tables (`{ type = "timeout", ... }`). Check
+  `type(err) == "table"` before reading `err.type`; error objects can also be
+  numbers, booleans, or other values that cannot safely be indexed.
 
 See `references/patterns.md` for `cpcall` (pcall + guaranteed cleanup).
 
@@ -402,8 +400,8 @@ table, because the module's `_ENV` is rebuilt on every reload.
 - For-loop variables are read-only. If you were mutating a loop variable,
   shadow it: `for k, v in pairs( t ) do  local k = k ; ... end`.
 - `table.create( narray, nhash )` for pre-allocation.
-- There is no named-vararg syntax (`(...: args)` is a syntax error). Use
-  `table.pack( ... )` when you need the table.
+- Named vararg tables: `function f( ... args )` binds `args` as a proper
+  table with `.n` field. Prefer this over `table.pack( ... )` in 5.5.
 - `<close>` variables (from 5.4) still work. Define `__close` on metatables.
 - Floats print with full round-trip precision by default.
 - `utf8.offset` now returns the final position of the character as well.

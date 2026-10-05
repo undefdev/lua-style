@@ -16,8 +16,9 @@ coroutines, testing, or feature modules.
 
 ## cpcall
 
-`cpcall` = pcall + guaranteed cleanup. The cleanup function `c` always runs,
-even if `f` errors. If `f` errored, the error is re-thrown after cleanup.
+`cpcall` = pcall + cleanup. The cleanup function `c` runs after `f` returns or
+errors. If `f` errored, the error is re-thrown after cleanup. If cleanup itself
+throws, its error takes precedence.
 
 Works on LuaJIT and 5.5 (both pass extra `xpcall` arguments through). The
 results of `f` never touch a table, so `nil`s in the return list survive; only
@@ -38,8 +39,8 @@ do
 end
 ```
 
-`debug.traceback` returns non-string errors unchanged, so typed error tables
-pass through `cpcall` intact; string errors arrive with a traceback appended.
+Typed error tables pass through `cpcall` intact; string errors arrive with a
+traceback appended by `debug.traceback`.
 
 Don't write the `{ xpcall( … ) } … unpack( ret, 2 )` variant: it drops trailing
 `nil`s from the results, and `{ … }` on a vararg is a trace killer on LuaJIT
